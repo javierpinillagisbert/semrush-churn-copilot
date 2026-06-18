@@ -195,24 +195,6 @@ def metric_card(label, value, note=""):
     st.markdown(f'<div class="metric-card"><div class="metric-label">{html.escape(str(label))}</div><div class="metric-value">{html.escape(str(value))}</div><div class="metric-note">{html.escape(str(note))}</div></div>', unsafe_allow_html=True)
 
 
-
-
-def metric_card_html(label, value, note=""):
-    """Render a compact KPI card used in the CSM Book section."""
-    safe_label = html.escape(str(label))
-    safe_value = html.escape(str(value))
-    safe_note = html.escape(str(note))
-    st.markdown(
-        (
-            '<div class="metric-card">'
-            f'<div class="metric-label">{safe_label}</div>'
-            f'<div class="metric-value">{safe_value}</div>'
-            f'<div class="metric-note">{safe_note}</div>'
-            '</div>'
-        ),
-        unsafe_allow_html=True,
-    )
-
 def risk_level(prob):
     if prob >= 0.70:
         return "High"
@@ -2154,6 +2136,15 @@ st.markdown(
     'div[data-testid="stButton"] > button:hover{transform:translateY(-2px) !important;box-shadow:0 14px 30px rgba(37,99,235,.30) !important;filter:brightness(1.05) !important;}'
     'div[data-testid="stButton"] > button:active{transform:translateY(0px) !important;box-shadow:0 8px 18px rgba(37,99,235,.20) !important;}'
     'div[data-testid="stButton"] > button p{color:#FFFFFF !important;font-weight:950 !important;}'
+    '.portfolio360-action-intro{margin:14px 0 10px;padding:13px 16px;border:1px solid #D8E7FF;border-radius:17px;background:linear-gradient(135deg,#FFFFFF,#F1F7FF);color:#334155;font-size:13px;line-height:1.45;}'
+    '.immediate-account-card{background:linear-gradient(155deg,#FFFFFF 0%,#FFF7F7 100%);border:1px solid #FECACA;border-top:5px solid #E05D5D;border-radius:22px;padding:17px;min-height:218px;box-shadow:0 14px 30px rgba(127,29,29,.08);margin-bottom:10px;}'
+    '.immediate-account-top{display:flex;align-items:center;gap:7px;color:#B91C1C;font-size:11px;font-weight:950;letter-spacing:.08em;}'
+    '.immediate-risk-dot{width:9px;height:9px;border-radius:50%;background:#E05D5D;box-shadow:0 0 0 4px rgba(224,93,93,.13);}'
+    '.immediate-account-name{font-size:18px;font-weight:950;color:#0B102F;line-height:1.15;margin-top:13px;min-height:40px;}'
+    '.immediate-account-id{font-size:12px;color:#64748B;margin-top:4px;}'
+    '.immediate-account-metric{font-size:31px;font-weight:950;color:#B91C1C;line-height:1;margin-top:17px;}'
+    '.immediate-account-sub{font-size:12px;color:#475569;line-height:1.45;margin-top:8px;}'
+    '.immediate-account-theme{display:inline-block;margin-top:11px;padding:6px 9px;border-radius:999px;background:#FFF1F2;color:#9F1239;font-size:11px;font-weight:850;}'
     '@media (max-width:1100px){.mission-grid,.guide-grid{grid-template-columns:repeat(2,minmax(0,1fr));}.account-card-grid,.question-grid{grid-template-columns:1fr;}}'
     '</style>',
     unsafe_allow_html=True,
@@ -2178,6 +2169,8 @@ VIEW_OPTIONS = [
 QUEUE_FILTER_OPTIONS = [
     "All accounts",
     "P1/P2 accounts",
+    "High-risk accounts",
+    "MRR at risk",
     "Renewal risk",
     "Adoption gap",
     "Product friction",
@@ -2206,6 +2199,12 @@ def apply_queue_filter(dataframe: pd.DataFrame, mode: str) -> pd.DataFrame:
 
     if mode == "P1/P2 accounts":
         return dataframe[dataframe["priority"].isin(["P1", "P2"])]
+
+    if mode == "High-risk accounts":
+        return dataframe[dataframe["risk_level"] == "High"]
+
+    if mode == "MRR at risk":
+        return dataframe[dataframe["risk_level"] == "High"].sort_values("mrr", ascending=False)
 
     if mode == "Renewal risk":
         return dataframe[
@@ -2251,6 +2250,14 @@ def queue_context(mode: str) -> tuple[str, str]:
         "P1/P2 accounts": (
             "Priority queue · P1/P2 accounts",
             "Start here. These are the accounts with the clearest risk, revenue impact or renewal sensitivity.",
+        ),
+        "High-risk accounts": (
+            "Immediate-action queue · High-risk accounts",
+            "Accounts already above the high-risk threshold. Review the top accounts first, then open Account 360° to confirm the recommended action and any cross-functional handoff.",
+        ),
+        "MRR at risk": (
+            "Revenue-protection queue · High-risk MRR",
+            "High-risk accounts ordered by monthly recurring revenue. Use this view to protect the largest commercial exposure first.",
         ),
         "Renewal risk": (
             "Renewal-risk queue",
@@ -2491,10 +2498,10 @@ def portfolio_360_html():
 
     def node(label, value, left, top, color, queue):
         return (
-            f'<button class="orbit-node" style="left:{left}; top:{top}; --node-color:{color};" '
-            f'title="Open {html.escape(queue)} from the Mission Control buttons below.">' 
+            f'<div class="orbit-node" style="left:{left}; top:{top}; --node-color:{color};" '
+            f'title="Use the matching action button below to open {html.escape(queue)}.">' 
             f'<span class="orbit-dot"></span><span class="orbit-label">{html.escape(label)}</span>'
-            f'<span class="orbit-value">{html.escape(value)}</span></button>'
+            f'<span class="orbit-value">{html.escape(value)}</span></div>'
         )
 
     nodes = "".join([
@@ -2536,6 +2543,86 @@ def portfolio_360_html():
         </div>
     </div>
     """
+
+
+def render_portfolio_360_actions():
+    """Real Streamlit CTAs paired with the Portfolio 360° visual nodes."""
+    team_count = support_needed_count + sales_needed_count + product_needed_count
+    high_risk_count = int((filtered["risk_level"] == "High").sum())
+
+    st.markdown(
+        '<div class="portfolio360-action-intro"><strong>Open a work queue directly from the 360° view.</strong> '
+        'Each action applies the relevant filter and keeps the CSM workflow focused.</div>',
+        unsafe_allow_html=True,
+    )
+
+    actions = [
+        ("🚨 High-risk accounts", f"{high_risk_count} need immediate review", "High-risk accounts", "portfolio360_high_risk"),
+        ("💼 Renewal", f"{renewal_pressure_30} with renewal pressure", "Renewal risk", "portfolio360_renewal"),
+        ("📈 Adoption", f"{low_usage_count} need value recovery", "Adoption gap", "portfolio360_adoption"),
+        ("🛠 Friction", f"{product_friction_count} show trust friction", "Product friction", "portfolio360_friction"),
+        ("🤝 Teams", f"{team_count} may need another team", "Cross-functional routing", "portfolio360_teams"),
+        ("💰 MRR at risk", _fmt_money(mrr_at_risk), "MRR at risk", "portfolio360_mrr"),
+    ]
+
+    cols = st.columns(6)
+    for col, (label, caption, queue, key) in zip(cols, actions):
+        with col:
+            st.caption(caption)
+            if st.button(label, key=key, use_container_width=True, help=f"Open the {queue} queue"):
+                go_to("Priority Queue", queue)
+
+
+def render_immediate_action_accounts():
+    """Visible individual-account launchers for the most urgent high-risk accounts."""
+    high_risk = filtered[filtered["risk_level"] == "High"].sort_values(
+        ["churn_probability", "mrr"], ascending=[False, False]
+    )
+
+    section_header(
+        "Immediate-action accounts",
+        "Start with individual high-risk accounts. Open Account 360° for the full story, recommended actions and required handoffs.",
+    )
+
+    top = high_risk.head(4)
+    left, right = st.columns([3, 1])
+    with left:
+        if high_risk.empty:
+            st.info("No accounts are currently classified as high risk in the selected portfolio view.")
+        else:
+            st.markdown(
+                f'<div class="briefing-note"><strong>{len(high_risk)} high-risk accounts are visible in this portfolio.</strong> '
+                'The cards below show the most urgent ones by churn probability and revenue exposure.</div>',
+                unsafe_allow_html=True,
+            )
+    with right:
+        if st.button("View all high-risk accounts", key="view_all_high_risk_from_mission", use_container_width=True):
+            go_to("Priority Queue", "High-risk accounts")
+
+    if top.empty:
+        return
+
+    cards = st.columns(len(top))
+    for col, (_, row) in zip(cards, top.iterrows()):
+        account_name = html.escape(str(row.get("account_name", row.get("account_id", "Account"))))
+        account_id = html.escape(str(row.get("account_id", "")))
+        main_theme = html.escape(str(dominant_account_theme(row)))
+        with col:
+            st.markdown(
+                f'<div class="immediate-account-card">'
+                f'<div class="immediate-account-top"><span class="immediate-risk-dot"></span><span>HIGH RISK</span></div>'
+                f'<div class="immediate-account-name">{account_name}</div>'
+                f'<div class="immediate-account-id">{account_id}</div>'
+                f'<div class="immediate-account-metric">{float(row.get("churn_probability", 0)):.1%}</div>'
+                f'<div class="immediate-account-sub">{_fmt_money(row.get("mrr", 0))} MRR · renewal in {int(row.get("renewal_due_days", 0))} days</div>'
+                f'<div class="immediate-account-theme">{main_theme}</div>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+            if st.button("Open Account 360°", key=f"mission_high_risk_{row['account_id']}", use_container_width=True):
+                st.session_state["selected_account_id"] = row["account_id"]
+                go_to("Account Briefing")
+
 
 
 def immersive_priority_landscape_html(dataframe):
@@ -3036,7 +3123,9 @@ if active_view == "Mission Control":
     section_header("Mission Control", "Start here. Each snapshot is now a real entry point into a filtered CSM work queue.")
     st.markdown(mission_guide_html(), unsafe_allow_html=True)
     st.markdown(daily_brief_html(), unsafe_allow_html=True)
+    render_immediate_action_accounts()
     st.markdown(portfolio_360_html(), unsafe_allow_html=True)
+    render_portfolio_360_actions()
     render_clickable_mission_cards()
 
     st.markdown(
